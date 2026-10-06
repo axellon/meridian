@@ -183,6 +183,10 @@ export async function swapToken({
       search.set("referralAccount", referralParams.referralAccount);
       search.set("referralFee", String(referralParams.referralFee));
     }
+    // Hardened (agent-hardening patch): send an explicit slippage cap instead of
+    // relying on Jupiter Ultra's default. Clamped to 10-1000 bps.
+    const slippageBps = Math.min(1000, Math.max(10, Math.round(Number(config.jupiter.slippageBps ?? 100))));
+    search.set("slippageBps", String(slippageBps));
     const orderUrl = `${JUPITER_SWAP_V2_API}/order?${search.toString()}`;
     const jupiterApiKey = getJupiterApiKey();
 

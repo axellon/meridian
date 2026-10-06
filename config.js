@@ -178,9 +178,13 @@ export const config = {
   },
 
   // ─── HiveMind ─────────────────────────
+  // Hardened (agent-hardening patch): HiveMind is now strictly OPT-IN.
+  // Previously config.js fell back to DEFAULT_HIVEMIND_URL/DEFAULT_HIVEMIND_API_KEY,
+  // making the outbound telemetry/lessons sync ON by default (contradicting the
+  // user-config.example.json template which ships these fields empty).
   hiveMind: {
-    url: nonEmptyString(u.hiveMindUrl, DEFAULT_HIVEMIND_URL),
-    apiKey: nonEmptyString(u.hiveMindApiKey, process.env.HIVEMIND_API_KEY, DEFAULT_HIVEMIND_API_KEY),
+    url: nonEmptyString(u.hiveMindUrl, process.env.HIVEMIND_URL, ""),
+    apiKey: nonEmptyString(u.hiveMindApiKey, process.env.HIVEMIND_API_KEY, ""),
     agentId: u.agentId ?? null,
     pullMode: u.hiveMindPullMode ?? "auto",
   },
@@ -240,13 +244,20 @@ export const config = {
 
   jupiter: {
     // Internal Jupiter Ultra settings; override by env only, do not expose in user-config.
+    // Hardened (agent-hardening patch): referral now defaults OFF. Previously the
+    // built-in developer referral account (9Mzh...jwey, 50 bps) collected 0.5% of
+    // every swap by default. Operators who want the referral must set
+    // JUPITER_REFERRAL_ACCOUNT explicitly (their own Jupiter referral account).
     apiKey: process.env.JUPITER_API_KEY ?? "",
     referralAccount:
-      process.env.JUPITER_REFERRAL_ACCOUNT ??
-      "9MzhDUnq3KxecyPzvhguQMMPbooXQ3VAoCMPDnoijwey",
+      process.env.JUPITER_REFERRAL_ACCOUNT ?? "",
     referralFeeBps: Number(
       process.env.JUPITER_REFERRAL_FEE_BPS ?? 50,
     ),
+    // Hardened: explicit swap slippage for Jupiter Ultra orders (basis points).
+    // Previously the order request sent no slippage parameter at all, leaving
+    // thin memecoin swaps at whatever the default is. Clamped 10-1000 in wallet.js.
+    slippageBps: Number(process.env.SWAP_SLIPPAGE_BPS ?? 100),
   },
 
   indicators: {

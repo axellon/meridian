@@ -586,7 +586,7 @@ STEPS:
    For single-side SOL deploys, do not invent upside:
    set amount_y only, keep amount_x = 0, keep bins_above = 0, and let the upper bin stay at the active bin.
 4. Report in this exact format (no tables, no extra sections):
-   🚀 DEPLOYED
+   🧪 DRY-RUN SIMULATION (NO POSITION OPENED — no transaction sent)
 
    <pool name>
    <pool address>

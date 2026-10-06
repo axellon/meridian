@@ -215,9 +215,12 @@ function normalizeConfigValue(key, value) {
     "trailingTakeProfit",
     "solMode",
     "darwinEnabled",
-    "lpAgentRelayEnabled",
   ]);
   const arrayKeys = new Set(["allowedLaunchpads", "blockedLaunchpads"]);
+  // Hardened (agent-hardening patch): connectivity/credential string keys
+  // (hiveMindUrl, hiveMindApiKey, agentId, publicApiKey, agentMeridianApiUrl,
+  // lpAgentRelayEnabled, pnlRpcUrl, gmgnApiKey) were removed — the agent can no
+  // longer set them via update_config.
   const stringKeys = new Set([
     "timeframe",
     "category",
@@ -226,16 +229,9 @@ function normalizeConfigValue(key, value) {
     "managementModel",
     "screeningModel",
     "generalModel",
-    "hiveMindUrl",
-    "hiveMindApiKey",
-    "agentId",
     "hiveMindPullMode",
-    "publicApiKey",
-    "agentMeridianApiUrl",
     "pnlSource",
-    "pnlRpcUrl",
     "gmgnFeeSource",
-    "gmgnApiKey",
   ]);
   if (value === null) return null;
   if (booleanKeys.has(key)) return coerceBoolean(value, key);
@@ -243,6 +239,43 @@ function normalizeConfigValue(key, value) {
   if (stringKeys.has(key)) return coerceString(value, key);
   return coerceFiniteNumber(value, key);
 }
+
+// ── Hardened guardrails (agent-hardening patch) ─────────────────────────────
+// The agent-facing update_config tool may only TIGHTEN these settings relative
+// to the operator's boot-time baseline. Loosening any of them requires a manual
+// user-config.json edit + process restart. Direction "up" = value may only be
+// raised (floors), "down" = value may only be lowered (ceilings / risk caps).
+const _bootBaseline = {
+  screening: { ...config.screening },
+  management: { ...config.management },
+  risk: { ...config.risk },
+};
+
+const AGENT_TIGHTEN_ONLY = {
+  // screening floors (raise-only)
+  minHolders: "up",
+  minMcap: "up",
+  minOrganic: "up",
+  minQuoteOrganic: "up",
+  minTokenFeesSol: "up",
+  minBinStep: "up",
+  // screening ceilings (lower-only)
+  maxTvl: "down",
+  maxMcap: "down",
+  maxBinStep: "down",
+  maxBotHoldersPct: "down",
+  maxTop10Pct: "down",
+  // risk / sizing (tighten-only)
+  maxPositions: "down",
+  maxDeployAmount: "down",
+  deployAmountSol: "down",
+  positionSizePct: "down",
+  minSolToOpen: "up",
+  gasReserve: "up",
+  stopLossPct: "up",
+  minFeePerTvl24h: "up",
+  outOfRangeBinsToClose: "down",
+};
 
 // Map tool names to implementations
 const toolMap = {
@@ -274,6 +307,16 @@ const toolMap = {
     return { saved: true, position: position_address, instruction: instruction || null };
   },
   self_update: async () => {
+    // Hardened (agent-hardening patch): self-update is now OPT-IN.
+    // The LLM can no longer git pull + restart itself unless the operator
+    // explicitly sets ALLOW_SELF_UPDATE=true in .env. This closes the
+    // "dormant repo + LLM-triggered update" risk surface.
+    if (process.env.ALLOW_SELF_UPDATE !== "true") {
+      return {
+        success: false,
+        error: "self_update is disabled by the operator (ALLOW_SELF_UPDATE !== true). Ask the operator to run `git pull` manually.",
+      };
+    }
     try {
       const result = execSync("git pull", { cwd: REPO_ROOT, encoding: "utf8" }).trim();
       if (result.includes("Already up to date")) {
@@ -431,23 +474,17 @@ const toolMap = {
       minBinsBelow: ["strategy", "minBinsBelow"],
       maxBinsBelow: ["strategy", "maxBinsBelow"],
       defaultBinsBelow: ["strategy", "defaultBinsBelow"],
-      // hivemind
-      hiveMindUrl: ["hiveMind", "url"],
-      hiveMindApiKey: ["hiveMind", "apiKey"],
-      agentId: ["hiveMind", "agentId"],
-      hiveMindPullMode: ["hiveMind", "pullMode"],
-      // meridian api / relay
-      publicApiKey: ["api", "publicApiKey"],
-      agentMeridianApiUrl: ["api", "url"],
-      lpAgentRelayEnabled: ["api", "lpAgentRelayEnabled"],
+      // Hardened (agent-hardening patch): connectivity, credential, and relay
+      // keys were REMOVED from the agent-facing CONFIG_MAP. The LLM can no longer
+      // change hiveMindUrl/hiveMindApiKey/agentId/publicApiKey/agentMeridianApiUrl/
+      // lpAgentRelayEnabled/gmgnApiKey/pnlRpcUrl via update_config — edit
+      // user-config.json or .env manually and restart instead.
       // pnl fetcher / poller
       pnlSource: ["pnl", "source", ["pnlSource"]],
-      pnlRpcUrl: ["pnl", "rpcUrl", ["pnlRpcUrl"]],
       pnlPollIntervalSec: ["pnl", "pollIntervalSec", ["pnlPollIntervalSec"]],
       pnlDepositCacheTtlSec: ["pnl", "depositCacheTtlSec", ["pnlDepositCacheTtlSec"]],
       // gmgn fee source
       gmgnFeeSource: ["gmgn", "feeSource", ["gmgnFeeSource"]],
-      gmgnApiKey: ["gmgn", "apiKey", ["gmgnApiKey"]],
       // chart indicators
       chartIndicatorsEnabled: ["indicators", "enabled", ["chartIndicators", "enabled"]],
       indicatorEntryPreset: ["indicators", "entryPreset", ["chartIndicators", "entryPreset"]],
@@ -483,12 +520,33 @@ const toolMap = {
           if (!Number.isFinite(numericVal)) {
             throw new Error(`${match[0]} must be a finite number`);
           }
-          normalizedVal = Math.max(MIN_SAFE_BINS_BELOW, Math.round(numericVal));
+          // Hardened: clamp bins to a sane band, not just a floor.
+          normalizedVal = Math.min(200, Math.max(MIN_SAFE_BINS_BELOW, Math.round(numericVal)));
         } else {
           normalizedVal = normalizeConfigValue(match[0], val);
         }
+        // Hardened: the agent may only TIGHTEN risk parameters relative to the
+        // operator's boot baseline — never loosen them.
+        const direction = AGENT_TIGHTEN_ONLY[match[0]];
+        if (direction && Number.isFinite(Number(normalizedVal))) {
+          const section = CONFIG_MAP[match[0]]?.[0];
+          const baselineVal = Number(_bootBaseline[section]?.[match[0]]);
+          const nextVal = Number(normalizedVal);
+          if (Number.isFinite(baselineVal)) {
+            const loosens =
+              (direction === "up" && nextVal < baselineVal) ||
+              (direction === "down" && nextVal > baselineVal);
+            if (loosens) {
+              throw new Error(
+                `${match[0]} is tighten-only for the agent: baseline is ${baselineVal}, ` +
+                `requested ${nextVal} would LOOSEN the guardrail. Ask the operator to edit user-config.json manually.`,
+              );
+            }
+          }
+        }
         applied[match[0]] = normalizedVal;
       } catch (error) {
+        log("config", `update_config rejected ${match[0]}: ${error.message}`);
         return { success: false, error: error.message, key: match[0], reason };
       }
     }
@@ -666,6 +724,10 @@ export async function executeTool(name, args) {
     const duration = Date.now() - startTime;
     const success = result?.success !== false && !result?.error;
 
+    // DRY_RUN results are simulations, not successes — never push live-style
+    // notifications (notifyDeploy/notifyClose/notifySwap) for them.
+    const isDryRun = result?.dry_run === true;
+
     logAction({
       tool: name,
       args,
@@ -674,7 +736,7 @@ export async function executeTool(name, args) {
       success,
     });
 
-    if (success) {
+    if (success && !isDryRun) {
       if (name === "swap_token" && result.tx) {
         notifySwap({ inputSymbol: args.input_mint?.slice(0, 8), outputSymbol: args.output_mint === "So11111111111111111111111111111111111111112" || args.output_mint === "SOL" ? "SOL" : args.output_mint?.slice(0, 8), amountIn: result.amount_in, amountOut: result.amount_out, tx: result.tx }).catch(() => {});
       } else if (name === "deploy_position") {
