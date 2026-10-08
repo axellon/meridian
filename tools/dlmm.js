@@ -520,6 +520,22 @@ export async function deployPosition({
     activeBinsAbove = Math.max(0, upperBinId - activeBin.binId);
   }
 
+  // Operator patch (8 Okt 2026): a tiny downside_pct (e.g. 0.01) converts to
+  // ~1 bin and used to throw "total bins 1 is below minimum 35", killing the
+  // top-pick entry. Widen to the safe minimum instead of throwing — a wider
+  // range means MORE downside coverage (the safe direction). The explicit
+  // bins_below path stays strict (validated below, unchanged).
+  const minSafeBinsBelow = Math.max(MIN_SAFE_BINS_BELOW, Number(config.strategy.minBinsBelow ?? MIN_SAFE_BINS_BELOW));
+  if ((downside_pct != null || upside_pct != null) && activeBinsBelow < minSafeBinsBelow) {
+    activeBinsBelow = minSafeBinsBelow;
+    const clampedLowerBinId = activeBin.binId - activeBinsBelow;
+    const clampedLowerPrice = Number(getPriceOfBinByBinId(clampedLowerBinId, actualBinStep).toString());
+    if (activePrice > 0 && clampedLowerPrice > 0) {
+      downside_pct = Number((((activePrice - clampedLowerPrice) / activePrice) * 100).toFixed(4));
+    }
+    log("deploy", `downside_pct too small for binStep ${actualBinStep} → widened to ${activeBinsBelow} bins (~${downside_pct}% downside)`);
+  }
+
   const strategyMap = {
     spot: StrategyType.Spot,
     curve: StrategyType.Curve,

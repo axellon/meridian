@@ -179,7 +179,7 @@ WARNING: This executes a real on-chain transaction. Check DRY_RUN mode.`,
           },
           downside_pct: {
             type: "number",
-            description: "Optional human-friendly downside range in percent below the current active price. Converted to bins internally via the Meteora SDK."
+            description: "Optional human-friendly downside range in percent below the current active price. Converted to bins internally via the Meteora SDK; if the converted range is below the safe minimum it is automatically widened to the minimum (never rejected)."
           },
           upside_pct: {
             type: "number",
