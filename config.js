@@ -98,6 +98,9 @@ export const config = {
     blockedLaunchpads:  u.blockedLaunchpads  ?? [],  // e.g. ["letsbonk.fun", "pump.fun"]
     minTokenAgeHours:   u.minTokenAgeHours   ?? null, // null = no minimum
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
+    // ─── Anti-death guards (deterministic, no LLM) ───
+    minVolumeChangePct: u.minVolumeChangePct ?? null, // e.g. -50 = skip pool whose volume dropped >50% vs prior window (death-in-progress)
+    maxFeeActiveTvlRatio: u.maxFeeActiveTvlRatio ?? null, // e.g. 50 = skip fee/active-TVL above this (distribution/pump-dump signature)
   },
 
   // ─── Position Management ────────────────

@@ -194,6 +194,19 @@ function getRawPoolScreeningRejectReason(pool, s) {
     const minCreatedAt = Date.now() - s.maxTokenAgeHours * 3_600_000;
     if (createdAt == null || createdAt < minCreatedAt) return `token age above maxTokenAgeHours ${s.maxTokenAgeHours}`;
   }
+  // Anti-death: volume collapsing vs prior window = death in progress
+  if (s.minVolumeChangePct != null) {
+    const volChg = numeric(pool?.volume_change_pct);
+    if (Number.isFinite(volChg) && volChg < s.minVolumeChangePct) {
+      return `volume change ${volChg}% below minVolumeChangePct ${s.minVolumeChangePct} (death in progress)`;
+    }
+  }
+  // Anti-dump: absurd fee/active-TVL = distribution signature (real healthy fees are ~0.1–5%)
+  if (s.maxFeeActiveTvlRatio != null) {
+    if (Number.isFinite(feeActiveTvlRatio) && feeActiveTvlRatio > s.maxFeeActiveTvlRatio) {
+      return `fee/active-TVL ${feeActiveTvlRatio}% above maxFeeActiveTvlRatio ${s.maxFeeActiveTvlRatio} (pump-dump distribution signature)`;
+    }
+  }
   return null;
 }
 
