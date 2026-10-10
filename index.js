@@ -117,7 +117,13 @@ async function runBriefing() {
   try {
     const briefing = await generateBriefing();
     if (telegramEnabled()) {
-      await sendHTML(briefing);
+      const sent = await sendHTML(briefing);
+      if (!sent) {
+        // Telegram rejected/failed (sendHTML returns null on error) — do NOT
+        // mark as sent so the 6h watchdog retries (and next cron fires again).
+        log("cron_error", "Morning briefing NOT delivered (sendHTML returned null) — will retry via watchdog");
+        return;
+      }
     }
     setLastBriefingDate();
   } catch (error) {
